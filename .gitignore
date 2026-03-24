@@ -1,0 +1,6 @@
+/target
+**/target
+node_modules
+.rusty-agent-test
+*.wasm
+!examples/plugins/hello-world/hello-world.wasm

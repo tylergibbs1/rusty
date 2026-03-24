@@ -1,0 +1,32 @@
+[plugin]
+id = "hello-world"
+name = "Hello World"
+version = "0.1.0"
+author = "Tyler Gibbs"
+description = "A simple greeting plugin"
+
+capabilities = []
+
+[[actions]]
+id = "greet"
+title = "Greet"
+description = "Returns a personalized greeting"
+kind = "read-only"
+approval = "none-required"
+tags = ["demo", "greeting"]
+capabilities = []
+
+[actions.input-schema]
+type = "object"
+required = ["name"]
+
+[actions.input-schema.properties.name]
+type = "string"
+description = "Name to greet"
+
+[actions.output-schema]
+type = "object"
+required = ["message"]
+
+[actions.output-schema.properties.message]
+type = "string"
