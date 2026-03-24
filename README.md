@@ -1,6 +1,10 @@
-# rusty
+<p align="center">
+  <img src="logo.svg" width="200" alt="rusty logo">
+</p>
 
-A policy-aware WASM execution platform for portable, sandboxed, plugin-hosted tools.
+<h1 align="center">rusty</h1>
+
+<p align="center">A policy-aware WASM execution platform for portable, sandboxed, plugin-hosted tools.</p>
 
 Instead of giving agents raw functions, shell access, or direct API clients, rusty exposes portable plugin actions that run inside a controlled host. Every action is typed, inspectable, traceable, permissioned, and isolated.
 
