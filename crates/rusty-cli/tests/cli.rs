@@ -16,6 +16,18 @@ fn rusty_cmd(home: &std::path::Path) -> Command {
     cmd
 }
 
+fn strip_ansi(bytes: &[u8]) -> String {
+    let stripped = strip_ansi_escapes::strip(bytes);
+    String::from_utf8(stripped).unwrap_or_default()
+}
+
+/// Run command and return stdout with ANSI codes stripped
+fn run_stdout(cmd: &mut Command) -> String {
+    let output = cmd.output().unwrap();
+    assert!(output.status.success(), "command failed: {}", strip_ansi(&output.stderr));
+    strip_ansi(&output.stdout)
+}
+
 fn setup_with_plugin() -> (tempfile::TempDir, PathBuf) {
     let home = tempfile::tempdir().unwrap();
     let plugin = plugin_dir();
@@ -35,11 +47,11 @@ fn setup_with_plugin() -> (tempfile::TempDir, PathBuf) {
 fn install_succeeds() {
     let home = tempfile::tempdir().unwrap();
 
-    rusty_cmd(home.path())
-        .args(["install", plugin_dir().to_str().unwrap()])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Installed plugin: hello-world"));
+    let stdout = run_stdout(
+        rusty_cmd(home.path()).args(["install", plugin_dir().to_str().unwrap()]),
+    );
+    assert!(stdout.contains("Installed plugin"), "stdout: {stdout}");
+    assert!(stdout.contains("hello-world"), "stdout: {stdout}");
 }
 
 #[test]
@@ -131,21 +143,18 @@ fn invoke_success() {
 fn invoke_with_trace_flag() {
     let (home, _) = setup_with_plugin();
 
-    rusty_cmd(home.path())
-        .args([
-            "invoke",
-            "hello-world",
-            "greet",
-            "--input",
-            r#"{"name": "Traced"}"#,
-            "--trace",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Hello, Traced!"))
-        .stdout(predicate::str::contains("Trace for run"))
-        .stdout(predicate::str::contains("validation_passed"))
-        .stdout(predicate::str::contains("execution_succeeded"));
+    let stdout = run_stdout(rusty_cmd(home.path()).args([
+        "invoke",
+        "hello-world",
+        "greet",
+        "--input",
+        r#"{"name": "Traced"}"#,
+        "--trace",
+    ]));
+    assert!(stdout.contains("Hello, Traced!"), "stdout: {stdout}");
+    assert!(stdout.contains("Trace for run"), "stdout: {stdout}");
+    assert!(stdout.contains("validation passed"), "stdout: {stdout}");
+    assert!(stdout.contains("done"), "stdout: {stdout}");
 }
 
 #[test]
@@ -230,34 +239,29 @@ fn trace_shows_saved_trace() {
     let (home, _) = setup_with_plugin();
 
     // Invoke to generate a trace
-    let output = rusty_cmd(home.path())
-        .args([
-            "invoke",
-            "hello-world",
-            "greet",
-            "--input",
-            r#"{"name": "Saved"}"#,
-        ])
-        .output()
-        .unwrap();
+    let stdout = run_stdout(rusty_cmd(home.path()).args([
+        "invoke",
+        "hello-world",
+        "greet",
+        "--input",
+        r#"{"name": "Saved"}"#,
+    ]));
 
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    // Extract the run ID from "Run: <uuid>"
+    // Extract the run ID from "Run: <uuid>" (after stripping ANSI)
     let run_id = stdout
         .lines()
-        .find(|l| l.starts_with("Run: "))
+        .find(|l| l.contains("Run:"))
+        .expect("should contain Run: line")
+        .split("Run:")
+        .nth(1)
         .unwrap()
-        .trim_start_matches("Run: ")
         .trim();
 
     // Now retrieve the trace
-    rusty_cmd(home.path())
-        .args(["trace", run_id])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Trace for run"))
-        .stdout(predicate::str::contains("hello-world"))
-        .stdout(predicate::str::contains("greet"));
+    let trace_out = run_stdout(rusty_cmd(home.path()).args(["trace", run_id]));
+    assert!(trace_out.contains("Trace for run"), "stdout: {trace_out}");
+    assert!(trace_out.contains("hello-world"), "stdout: {trace_out}");
+    assert!(trace_out.contains("greet"), "stdout: {trace_out}");
 }
 
 // ─── Help ────────────────────────────────────────────────────

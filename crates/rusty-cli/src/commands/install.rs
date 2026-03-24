@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
+use owo_colors::OwoColorize;
 use rusty_engine::invoke::build_linker;
 use rusty_engine::registry::PluginRegistry;
 use rusty_engine::runtime;
@@ -23,7 +24,15 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let mut registry = PluginRegistry::new(&home);
     let plugin_id = registry.install(&args.path, &engine, &linker).await?;
 
-    println!("Installed plugin: {plugin_id}");
-    println!("  location: {}", registry.plugins_dir().join(&plugin_id).display());
+    println!(
+        "{} Installed plugin: {}",
+        "done".green().bold(),
+        plugin_id.cyan().bold()
+    );
+    println!(
+        "  {} {}",
+        "location:".dimmed(),
+        registry.plugins_dir().join(&plugin_id).display()
+    );
     Ok(())
 }

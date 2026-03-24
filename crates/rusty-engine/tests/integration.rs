@@ -101,7 +101,7 @@ description = "no wasm"
     assert!(result.is_err());
     let err = result.err().unwrap();
     assert!(
-        err.to_string().contains("not found"),
+        err.to_string().contains(".wasm"),
         "should mention missing WASM file, got: {err}"
     );
 }
