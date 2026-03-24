@@ -21,54 +21,56 @@ Instead of giving agents raw functions, shell access, or direct API clients, rus
 
 - Rust stable (1.78+)
 - `wasm32-wasip2` target: `rustup target add wasm32-wasip2`
-- `wasm-tools`: `cargo install wasm-tools`
 
-### Build
+### Install
 
 ```bash
-# Build the host CLI
 cargo build --release -p rusty-cli
-
-# Build the example plugin
-cd examples/plugins/hello-world
-cargo build --target wasm32-wasip2 --release
-cp target/wasm32-wasip2/release/hello_world_plugin.wasm hello-world.wasm
-cd ../../..
+# optionally add to PATH:
+cp target/release/rusty ~/.cargo/bin/
 ```
 
-### Run
+### Create a plugin in 3 commands
 
 ```bash
-# Install the plugin
-rusty install examples/plugins/hello-world
+rusty init my-plugin
+cd my-plugin
+rusty build
+```
 
-# List installed plugins
-rusty list
+That's it. `rusty init` scaffolds the manifest, Cargo.toml, and source with all the WIT boilerplate. `rusty build` compiles to `wasm32-wasip2` and copies the `.wasm` with the correct filename.
 
-# Inspect a plugin's actions and schemas
-rusty inspect hello-world
+### Install and run
 
-# Invoke an action
-rusty invoke hello-world greet --input '{"name": "World"}'
+```bash
+rusty install .
+rusty invoke my-plugin hello --input '{"name": "World"}'
+```
 
-# Invoke with full execution trace
-rusty invoke hello-world greet --input '{"name": "World"}' --trace
+### Full CLI
 
-# Retrieve a saved trace by run ID
-rusty trace <run-id>
+```bash
+rusty init <name>           # scaffold a new plugin project
+rusty build [path]          # compile plugin to WASM
+rusty install <path>        # install a plugin
+rusty list                  # list installed plugins
+rusty inspect <plugin-id>   # show manifest, schemas, capabilities
+rusty invoke <plugin> <action> --input '...'   # invoke an action
+rusty invoke <plugin> <action> --input '...' --trace  # with execution trace
+rusty trace <run-id>        # retrieve a saved trace
 ```
 
 ### Schema validation
 
 ```bash
 # Invalid input is rejected before the plugin ever executes
-rusty invoke hello-world greet --input '{}'
+rusty invoke my-plugin hello --input '{}'
 # => error: [validation_failed] "name" is a required property
 ```
 
 ### Policy enforcement
 
-Create `$RUSTY_HOME/policy.toml`:
+Create `~/.rusty/policy.toml`:
 
 ```toml
 default-effect = "deny"
@@ -86,39 +88,51 @@ match-action-kind = "destructive"
 
 ## Writing a plugin
 
-A plugin is a WASM component that exports a `guest` interface defined in WIT. Here's the minimal structure:
+The fastest path is `rusty init`:
+
+```bash
+rusty init my-plugin
+cd my-plugin
+# edit rusty-plugin.toml and src/lib.rs
+rusty build
+rusty install .
+```
+
+`rusty init` generates three files:
 
 **`rusty-plugin.toml`** — manifest declaring metadata, actions, and capabilities:
 
 ```toml
 [plugin]
 id = "my-plugin"
-name = "My Plugin"
+name = "my-plugin"
 version = "0.1.0"
-author = "You"
-description = "Does something useful"
+author = ""
+description = ""
 
 capabilities = []
 
 [[actions]]
-id = "do-thing"
-title = "Do Thing"
-description = "Does the thing"
+id = "hello"
+title = "Hello"
+description = "A starter action"
 kind = "read-only"
 approval = "none-required"
-tags = ["example"]
+tags = []
 capabilities = []
 
 [actions.input-schema]
 type = "object"
-required = ["value"]
-[actions.input-schema.properties.value]
+required = ["name"]
+
+[actions.input-schema.properties.name]
 type = "string"
 
 [actions.output-schema]
 type = "object"
-required = ["result"]
-[actions.output-schema.properties.result]
+required = ["message"]
+
+[actions.output-schema.properties.message]
 type = "string"
 ```
 
@@ -132,35 +146,45 @@ wit_bindgen::generate!({
 });
 
 use exports::rusty::plugin::guest::Guest;
+use rusty::plugin::host_api;
 use rusty::plugin::types::*;
 
-struct MyPlugin;
+struct Plugin;
 
-impl Guest for MyPlugin {
-    fn get_info() -> PluginInfo {
-        PluginInfo {
-            id: "my-plugin".into(),
-            name: "My Plugin".into(),
-            version: "0.1.0".into(),
-            author: "You".into(),
-            description: "Does something useful".into(),
-        }
-    }
-
-    fn list_actions() -> Vec<ActionDef> {
-        vec![/* ... */]
-    }
+impl Guest for Plugin {
+    fn get_info() -> PluginInfo { /* ... */ }
+    fn list_actions() -> Vec<ActionDef> { /* ... */ }
 
     fn invoke(action_id: String, input: String) -> ActionResult {
-        // Parse input, do work, return result
-        ActionResult::Ok(to_json(&serde_json::json!({"result": "done"})))
+        host_api::log(LogLevel::Info, &format!("invoking {action_id}"));
+
+        match action_id.as_str() {
+            "hello" => {
+                let parsed: serde_json::Value = from_json(&input).unwrap();
+                let name = parsed["name"].as_str().unwrap_or("world");
+                ActionResult::Ok(to_json(&serde_json::json!({
+                    "message": format!("Hello, {name}!")
+                })))
+            }
+            _ => ActionResult::Err(ActionError {
+                code: "unknown_action".into(),
+                message: format!("unknown action: {action_id}"),
+                details: None,
+            }),
+        }
     }
 }
 
-export!(MyPlugin);
+export!(Plugin);
 ```
 
-Build with `cargo build --target wasm32-wasip2 --release`, copy the `.wasm` to the plugin directory matching the manifest ID, then `rusty install <dir>`.
+Build and install:
+
+```bash
+rusty build
+rusty install .
+rusty invoke my-plugin hello --input '{"name": "World"}'
+```
 
 ## Architecture
 
@@ -171,7 +195,7 @@ rusty/
 │   ├── rusty-wit         # WIT interface definitions + wasmtime bindgen host bindings
 │   ├── rusty-engine      # Plugin loading, invocation lifecycle, registry
 │   ├── rusty-policy      # First-match-wins policy rule engine
-│   ├── rusty-cli         # CLI binary (install, list, inspect, invoke, trace)
+│   ├── rusty-cli         # CLI binary (init, build, install, list, inspect, invoke, trace)
 │   └── rusty-plugin-sdk  # Guest-side SDK for plugin authors
 └── examples/plugins/
     └── hello-world       # Example plugin
@@ -213,11 +237,11 @@ All host calls are recorded in the execution trace.
 cargo test --workspace
 ```
 
-70 tests across three layers:
-- **27 unit tests** in `rusty-core` (manifest parsing, schema validation, policy config, action/capability enums, invocation lifecycle, trace events)
-- **6 unit tests** in `rusty-policy` (rule matching, first-match-wins, multi-condition AND logic)
-- **21 integration tests** in `rusty-engine` (plugin loading, invoke success/failure, schema rejection, policy enforcement, cancellation, registry operations, isolation)
-- **16 CLI tests** in `rusty-cli` (install, list, inspect, invoke, trace — success and error paths)
+70 tests across four layers:
+- **27 unit tests** in `rusty-core` — manifest parsing, schema validation, policy config, action/capability enums, invocation lifecycle, trace events
+- **6 unit tests** in `rusty-policy` — rule matching, first-match-wins, multi-condition AND logic
+- **21 integration tests** in `rusty-engine` — plugin loading, invoke success/failure, schema rejection, policy enforcement, cancellation, registry operations, isolation
+- **16 CLI tests** in `rusty-cli` — init, build, install, list, inspect, invoke, trace (success and error paths)
 
 ## Agent SDK integration
 
